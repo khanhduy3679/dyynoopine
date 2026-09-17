@@ -1,4 +1,4 @@
-﻿import { useState } from 'react';
+import { useState } from 'react';
 import appointmentService from '../services/appointmentService';
 
 const CheckInPage = () => {

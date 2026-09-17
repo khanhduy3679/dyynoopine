@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import appointmentService from '../services/appointmentService';
 import catalogService from '../services/catalogService';

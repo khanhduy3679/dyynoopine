@@ -1,4 +1,4 @@
-﻿import apiClient from '../apiClient';
+import apiClient from '../apiClient';
 
 const appointmentService = {
   createAppointment(payload) {
@@ -6,6 +6,9 @@ const appointmentService = {
   },
   verifyOtp(id, otp) {
     return apiClient.post(`/appointments/${id}/verify-otp`, { otp }).then((res) => res.data);
+  },
+  resendOtp(id) {
+    return apiClient.post(`/appointments/${id}/resend-otp`).then((res) => res.data);
   },
   getMyAppointments() {
     return apiClient.get('/appointments/my').then((res) => res.data);

@@ -1,4 +1,5 @@
 const Appointment = require('../../models/Appointment');
+const User = require('../../models/User');
 
 class Handler {
   setNext(handler) { this.next = handler; return handler; }
@@ -26,17 +27,34 @@ class StaffCanDoServiceHandler extends Handler {
 
 class SlotAvailableHandler extends Handler {
   async handle(ctx) {
-    if (!ctx.staff) return super.handle(ctx);
-    const conflict = await Appointment.findOne({ staffId: ctx.staff._id, status: { $in: ['pending_otp', 'confirmed', 'checked_in', 'in_progress'] }, startTime: { $lt: ctx.endTime }, endTime: { $gt: ctx.startTime } });
-    if (conflict) throw Object.assign(new Error('Khung giờ này đã có người đặt'), { status: 409 });
+    const activeStatuses = ['pending_otp', 'confirmed', 'checked_in', 'in_progress'];
+    const timeOverlap = { startTime: { $lt: ctx.endTime }, endTime: { $gt: ctx.startTime } };
+
+    if (ctx.staff) {
+      // Có chọn stylist cụ thể → kiểm tra trùng lịch của stylist đó
+      const conflict = await Appointment.findOne({ staffId: ctx.staff._id, status: { $in: activeStatuses }, ...timeOverlap });
+      if (conflict) throw Object.assign(new Error('Khung giờ này đã có người đặt'), { status: 409 });
+    } else {
+      // Chọn "Bất kỳ stylist" → đếm số lịch trùng giờ, so với số stylist đang active
+      const overlappingCount = await Appointment.countDocuments({ status: { $in: activeStatuses }, ...timeOverlap });
+      const activeStaffCount = await User.countDocuments({ role: 'staff', isActive: true });
+      if (overlappingCount >= activeStaffCount) {
+        throw Object.assign(new Error('Khung giờ này đã kín, vui lòng chọn giờ khác hoặc chọn stylist cụ thể'), { status: 409 });
+      }
+    }
+
     return super.handle(ctx);
   }
 }
 
 class WorkingHoursHandler extends Handler {
   async handle(ctx) {
-    const h = ctx.startTime.getHours();
-    if (h < 8 || h >= 20) throw Object.assign(new Error('Salon chỉ nhận lịch từ 08:00 đến 20:00'), { status: 400 });
+    const startH = ctx.startTime.getHours();
+    const endH = ctx.endTime.getHours();
+    const endM = ctx.endTime.getMinutes();
+    if (startH < 8 || startH >= 20) throw Object.assign(new Error('Salon chỉ nhận lịch từ 08:00 đến 20:00'), { status: 400 });
+    // Giờ kết thúc: cho phép kết thúc đúng 20:00 (endH === 20 && endM === 0), nhưng không cho phép sau đó
+    if (endH > 20 || (endH === 20 && endM > 0)) throw Object.assign(new Error('Dịch vụ kết thúc sau giờ đóng cửa (20:00), vui lòng chọn giờ sớm hơn'), { status: 400 });
     return super.handle(ctx);
   }
 }

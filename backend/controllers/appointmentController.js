@@ -17,6 +17,13 @@ exports.verifyOtp = async (req, res) => {
   } catch (err) { handle(res, err); }
 };
 
+exports.resendOtp = async (req, res) => {
+  try {
+    const { appointment, demoOtp } = await service.resendOtp(req.params.id);
+    res.json({ success: true, otpExpiresAt: appointment.otpExpiresAt, demoOtp });
+  } catch (err) { handle(res, err); }
+};
+
 exports.checkIn = async (req, res) => {
   try {
     const appt = await service.checkIn(req.body.qrToken);
@@ -29,8 +36,18 @@ exports.updateStatus = async (req, res) => {
     const appt = await Appointment.findById(req.params.id);
     if (!appt) return res.status(404).json({ success: false, message: 'Không tìm thấy lịch hẹn' });
     const isOwner = String(appt.customerId) === String(req.user.id || req.user._id);
-    if (req.body.status === 'cancelled' && !isOwner && req.user.role !== 'admin') return res.status(403).json({ success: false, message: 'Không có quyền hủy lịch' });
-    const updated = await service.changeStatus(appt, req.body.status);
+    const nextStatus = req.body.status;
+
+    // Kiểm soát quyền theo trạng thái đích
+    if (nextStatus === 'cancelled') {
+      // Chỉ chủ lịch hẹn hoặc admin mới được hủy
+      if (!isOwner && req.user.role !== 'admin') return res.status(403).json({ success: false, message: 'Không có quyền hủy lịch' });
+    } else if (['checked_in', 'in_progress', 'completed'].includes(nextStatus)) {
+      // Chỉ staff hoặc admin mới được chuyển sang các trạng thái vận hành
+      if (req.user.role !== 'staff' && req.user.role !== 'admin') return res.status(403).json({ success: false, message: 'Chỉ nhân viên hoặc admin mới có quyền thực hiện thao tác này' });
+    }
+
+    const updated = await service.changeStatus(appt, nextStatus);
     res.json({ success: true, appointment: updated });
   } catch (err) { handle(res, err); }
 };

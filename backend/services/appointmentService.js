@@ -72,4 +72,24 @@ async function checkIn(qrToken) {
   return appt;
 }
 
-module.exports = { createAppointment, verifyOtp, checkIn, changeStatus };
+async function resendOtp(id) {
+  const appt = await Appointment.findById(id).populate('customerId');
+  if (!appt) throw Object.assign(new Error('Không tìm thấy lịch hẹn'), { status: 404 });
+  if (appt.status !== 'pending_otp') throw Object.assign(new Error('Chỉ có thể gửi lại OTP khi lịch hẹn đang chờ xác nhận'), { status: 400 });
+
+  const otp = String(Math.floor(100000 + Math.random() * 900000));
+  const otpCode = await bcrypt.hash(otp, 10);
+  const otpMinutes = Number(process.env.OTP_EXPIRES_MINUTES || 5);
+
+  appt.otpCode = otpCode;
+  appt.otpExpiresAt = new Date(Date.now() + otpMinutes * 60000);
+  appt.otpAttempts = 0;
+  await appt.save();
+
+  const destination = appt.customerId?.email || appt.customerId?.phone;
+  await createOtpStrategy().sendOtp(destination, otp);
+
+  return { appointment: appt, demoOtp: process.env.NODE_ENV === 'production' ? undefined : otp };
+}
+
+module.exports = { createAppointment, verifyOtp, checkIn, changeStatus, resendOtp };

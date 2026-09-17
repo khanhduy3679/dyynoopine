@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import QRCode from 'qrcode.react';
 import appointmentService from '../services/appointmentService';
 
