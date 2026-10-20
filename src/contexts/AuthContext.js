@@ -1,82 +1,119 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import authService from '../services/authService';
 
+/**
+ * AuthContext — Observer Pattern + Facade Pattern
+ *
+ * Observer Pattern: React Context hoạt động như một Observable —
+ *   khi state (user, loading) thay đổi, tất cả các component subscribe
+ *   (qua useAuth()) đều tự động re-render.
+ *
+ * Facade Pattern: hook useAuth() cung cấp interface đơn giản
+ *   (login, logout, register, user, loading) che giấu toàn bộ logic
+ *   phức tạp bên trong (gọi API, lưu JWT, điều hướng theo role…).
+ */
 const AuthContext = createContext(null);
 
-const getStoredAuth = () => {
-  const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
-  const rawUser = localStorage.getItem('authUser') || sessionStorage.getItem('authUser');
-  return { token, user: rawUser ? JSON.parse(rawUser) : null };
+/** Xác định nhãn hiển thị cho role */
+const roleLabelMap = {
+  admin: 'Quản trị viên',
+  staff: 'Nhân viên',
+  customer: 'Khách hàng',
 };
 
-const saveAuth = (token, user, rememberMe) => {
-  const storage = rememberMe ? localStorage : sessionStorage;
-  localStorage.removeItem('authToken'); localStorage.removeItem('authUser');
-  sessionStorage.removeItem('authToken'); sessionStorage.removeItem('authUser');
-  storage.setItem('authToken', token);
-  storage.setItem('authUser', JSON.stringify(user));
+/** Xác định route mặc định sau đăng nhập theo role */
+const defaultRouteByRole = {
+  admin: '/admin/dashboard',
+  staff: '/admin/dashboard',
+  customer: '/my-appointments',
 };
 
-// Observer Pattern: AuthContext là subject; component dùng useAuth sẽ tự re-render khi state auth đổi.
-export const AuthProvider = ({ children }) => {
+export function AuthProvider({ children }) {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true); // loading khi khôi phục session
   const navigate = useNavigate();
-  const [auth, setAuth] = useState(getStoredAuth);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
 
-  useEffect(() => setAuth(getStoredAuth()), []);
+  // Khôi phục phiên đăng nhập từ localStorage khi mount
+  useEffect(() => {
+    try {
+      const token = localStorage.getItem('authToken');
+      const storedUser = localStorage.getItem('authUser');
+      if (token && storedUser) {
+        setUser(JSON.parse(storedUser));
+      }
+    } catch {
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('authUser');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const navigateByRole = useCallback((role) => {
-    if (role === 'admin') navigate('/admin/dashboard');
-    else if (role === 'staff') navigate('/admin/appointments');
-    else navigate('/');
+  /**
+   * Facade: login() — gọi authService.login(), lưu JWT, cập nhật state,
+   * điều hướng tự động theo role.
+   */
+  const login = useCallback(async (email, password) => {
+    const data = await authService.login(email, password);
+    const { token, user: serverUser } = data;
+
+    // Bổ sung các trường hiển thị
+    const enrichedUser = {
+      ...serverUser,
+      name: serverUser.fullName || serverUser.name,
+      roleLabel: roleLabelMap[serverUser.role] || 'Khách hàng',
+    };
+
+    localStorage.setItem('authToken', token);
+    localStorage.setItem('authUser', JSON.stringify(enrichedUser));
+    setUser(enrichedUser);
+
+    // Điều hướng theo role
+    const targetRoute = defaultRouteByRole[serverUser.role] || '/';
+    navigate(targetRoute, { replace: true });
+
+    return enrichedUser;
   }, [navigate]);
 
-  const login = async (email, password, rememberMe = false) => {
-    setLoading(true); setError('');
-    try {
-      const response = await authService.login(email, password);
-      const token = response.token || response.data?.token;
-      const user = response.user || response.data?.user;
-      if (!token || !user) throw new Error('Dữ liệu đăng nhập từ server không hợp lệ');
-      saveAuth(token, user, rememberMe);
-      setAuth({ token, user });
-      navigateByRole(user.role);
-      return { success: true };
-    } catch (err) {
-      setError(err.message);
-      return { success: false, message: err.message };
-    } finally { setLoading(false); }
-  };
+  /**
+   * Facade: register() — gọi authService.register()
+   * Không tự đăng nhập sau khi đăng ký — người dùng cần login.
+   */
+  const register = useCallback(async ({ fullName, email, phone, password }) => {
+    const data = await authService.register({ fullName, email, phone, password });
+    return data;
+  }, []);
 
-  const register = async (userData) => {
-    setLoading(true); setError('');
-    try {
-      const response = await authService.register(userData);
-      return { success: true, message: response.message || 'Đăng ký thành công' };
-    } catch (err) {
-      setError(err.message);
-      return { success: false, message: err.message };
-    } finally { setLoading(false); }
-  };
+  /**
+   * Facade: logout() — xóa JWT, reset state, điều hướng về /login
+   */
+  const logout = useCallback(() => {
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('authUser');
+    setUser(null);
+    navigate('/login', { replace: true });
+  }, [navigate]);
 
-  const logout = () => {
-    localStorage.removeItem('authToken'); localStorage.removeItem('authUser');
-    sessionStorage.removeItem('authToken'); sessionStorage.removeItem('authUser');
-    setAuth({ token: null, user: null });
-    navigate('/login');
-  };
+  const value = { user, loading, login, register, logout };
 
-  const value = { user: auth.user, token: auth.token, loading, error, login, register, logout, clearError: () => setError(''), isAuthenticated: !!auth.token && !!auth.user };
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-};
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
 
-// Facade Pattern: useAuth() che giấu chi tiết gọi API/lưu token/context/điều hướng cho component.
-export const useAuth = () => {
+/**
+ * Facade hook: useAuth()
+ * Cung cấp { user, loading, login, register, logout }
+ */
+export function useAuth() {
   const context = useContext(AuthContext);
-  if (!context) throw new Error('useAuth phải được dùng bên trong AuthProvider');
+  if (!context) {
+    throw new Error('useAuth() phải được gọi bên trong <AuthProvider>');
+  }
   return context;
-};
+}
 
 export default AuthContext;

@@ -5,6 +5,7 @@ const mongoose = require('mongoose');
 const appointmentRoutes = require('./routes/appointmentRoutes');
 const authRoutes = require('./routes/authRoutes');
 const catalogRoutes = require('./routes/catalogRoutes');
+const userRoutes = require('./routes/userRoutes');
 const Appointment = require('./models/Appointment');
 const seedInitialData = require('./config/seedData');
 
@@ -14,6 +15,7 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/appointments', appointmentRoutes);
 app.use('/api', catalogRoutes);
+app.use('/api/users', userRoutes);
 
 app.get('/api/health', (req, res) => res.json({ success: true, message: 'API running' }));
 

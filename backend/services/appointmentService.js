@@ -20,13 +20,29 @@ async function findStaff(id) {
   return User.findOne({ _id: id, role: 'staff', isActive: true });
 }
 
-async function createAppointment({ customer, serviceId, staffId, startTime }) {
+async function createAppointment({ customer, serviceId, staffId, startTime, skipOtp }) {
   const service = await findService(serviceId);
   const staff = await findStaff(staffId);
   const start = new Date(startTime);
   if (Number.isNaN(start.getTime())) throw Object.assign(new Error('Thời gian đặt lịch không hợp lệ'), { status: 400 });
   const end = new Date(start.getTime() + (service?.duration || 45) * 60000);
   await buildBookingValidationChain().handle({ service, staff, staffId, startTime: start, endTime: end });
+
+  // Nếu là lễ tân / staff / admin tạo lịch tại quầy và có truyền skipOtp: true
+  if (skipOtp && (customer.role === 'staff' || customer.role === 'admin')) {
+    const qrToken = crypto.randomBytes(24).toString('hex');
+    const appointment = await Appointment.create({
+      customerId: customer.id || customer._id,
+      staffId: staff?._id || null,
+      serviceId,
+      startTime: start,
+      endTime: end,
+      qrToken,
+      status: 'confirmed'
+    });
+    events.emit('statusChanged', { appointmentId: appointment._id, from: 'pending_otp', to: 'confirmed' });
+    return { appointment };
+  }
 
   const otp = String(Math.floor(100000 + Math.random() * 900000));
   const otpCode = await bcrypt.hash(otp, 10);

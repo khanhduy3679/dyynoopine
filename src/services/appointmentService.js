@@ -13,6 +13,9 @@ const appointmentService = {
   getMyAppointments() {
     return apiClient.get('/appointments/my').then((res) => res.data);
   },
+  getAppointments(params) {
+    return apiClient.get('/appointments', { params }).then((res) => res.data);
+  },
   checkIn(qrToken) {
     return apiClient.post('/appointments/check-in', { qrToken }).then((res) => res.data);
   },
